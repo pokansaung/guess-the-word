@@ -1,0 +1,364 @@
+
+@Composable
+fun GuessWordScreen(
+    modifier: Modifier = Modifier,
+    viewModel: GameViewModel = viewModel()
+) {
+    val gameState by viewModel.gameState.collectAsState()
+    var showHint by remember { mutableStateOf(false) }
+
+    Column(
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .fillMaxSize()
+            .padding(20.dp)
+    ) {
+        // Header Section
+        Text(
+            text = "Guess The Word",
+            style = MaterialTheme.typography.headlineMedium
+        )
+        Text(
+            text = "Score: ${gameState.score}",
+            style = MaterialTheme.typography.titleLarge
+        )
+        Spacer(modifier = Modifier.size(20.dp))
+
+        // Current Guess Display
+        Text(
+            text = gameState.currentGuess.joinToString(" ") { it.toString() },
+            style = MaterialTheme.typography.headlineLarge
+        )
+
+        Spacer(modifier = Modifier.size(20.dp))
+
+        // Game Instructions
+        Text(
+            text = "Guess the correct word from given hint letters.",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.size(20.dp))
+
+        // Word Length Hint
+        Text(
+            text = "The word has ${gameState.targetWord.length} letters.",
+            fontSize = 20.sp
+        )
+
+        Spacer(modifier = Modifier.size(20.dp))
+
+        // Hint Letters
+        HintWord(
+            hintLetters = gameState.hintLetters,
+            selectedPositions = gameState.selectedPositions,
+            onLetterSelected = { row, col -> viewModel.toggleLetterSelection(row, col) },
+            targetWordLength = gameState.targetWord.length,
+            targetWord = if (showHint) gameState.targetWord else null
+        )
+
+        Spacer(modifier = Modifier.size(20.dp))
+
+        // Game Controls
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Button(
+                onClick = { viewModel.clearSelection() },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Clear")
+            }
+
+            Button(
+                onClick = { viewModel.submitGuess() },
+                enabled = gameState.currentGuess.isNotEmpty(),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Submit")
+            }
+        }
+
+        Spacer(modifier = Modifier.size(8.dp))
+
+        // Hint Button
+        Button(
+            onClick = { showHint = !showHint },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (showHint) "Hide Hint" else "Show Hint (-2 points)")
+        }
+
+        // Game Status Messages
+        gameState.message?.let { message ->
+            Spacer(modifier = Modifier.size(16.dp))
+            Text(
+                text = message,
+                color = when {
+                    message.startsWith("Correct") -> Color.Green
+                    message.startsWith("Wrong") -> Color.Red
+                    else -> MaterialTheme.colorScheme.onBackground
+                },
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+
+        // Game Over Dialog
+        if (gameState.isGameOver) {
+            AlertDialog(
+                onDismissRequest = { viewModel.resetGame() },
+                title = { Text("Game Over") },
+                text = {
+                    Column {
+                        Text("Your final score: ${gameState.score}")
+                        Text("The word was: ${gameState.targetWord.uppercase()}")
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = { viewModel.resetGame() }) {
+                        Text("Play Again")
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun HintWord(
+    hintLetters: List<List<Char>>,
+    selectedPositions: Set<Pair<Int, Int>>,
+    onLetterSelected: (Int, Int) -> Unit,
+    targetWordLength: Int,
+    targetWord: String? = null,
+    modifier: Modifier = Modifier
+) {
+    val selectedCount = selectedPositions.size
+    val targetLetters = targetWord?.uppercase()?.toSet() ?: emptySet()
+
+    Card(
+        elevation = CardDefaults.cardElevation(5.dp),
+        modifier = modifier.padding(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = "Select $targetWordLength letters ($selectedCount/$targetWordLength):",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            hintLetters.forEachIndexed { rowIndex, row ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    row.forEachIndexed { colIndex, letter ->
+                        val isSelected = selectedPositions.contains(rowIndex to colIndex)
+                        val isTargetLetter = targetLetters.contains(letter)
+
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    when {
+                                        isSelected -> MaterialTheme.colorScheme.primary
+                                        isTargetLetter && targetWord != null -> Color(0xFF4CAF50) // Green for hint letters
+                                        else -> MaterialTheme.colorScheme.surfaceVariant
+                                    }
+                                )
+                                .clickable {
+                                    if (!isSelected && selectedCount >= targetWordLength) return@clickable
+                                    onLetterSelected(rowIndex, colIndex)
+                                }
+                        ) {
+                            Text(
+                                text = letter.toString(),
+                                fontSize = 20.sp,
+                                color = when {
+                                    isSelected -> MaterialTheme.colorScheme.onPrimary
+                                    isTargetLetter && targetWord != null -> Color.White
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                }
+                if (rowIndex < hintLetters.lastIndex) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            if (targetWord != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Hint: Letters from the word are highlighted",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
+            }
+        }
+    }
+}
+
+class GameViewModel : ViewModel() {
+    private val _gameState = MutableStateFlow(GameState())
+    val gameState = _gameState.asStateFlow()
+
+    private val wordDictionary = listOf(
+        "iron", "cat", "animal", "zoo",
+        "phone", "sun", "window", "moon",
+        "water", "air", "big", "planet"
+    )
+
+    init {
+        startNewRound()
+    }
+
+    fun showHint() {
+        _gameState.update {
+            it.copy(
+                score = max(0, it.score - 2),
+                message = "Hint used! -2 points"
+            )
+        }
+    }
+
+    private fun generateHintLetters(word: String): List<List<Char>> {
+        val wordChars = word.uppercase().toList()
+        //val randomLetters = ('A'..'Z').filter { it !in wordChars }.shuffled()
+        val randomLetters = ('A'..'Z').shuffled().toList()
+
+        // Create mutable structures
+        var row1 = mutableListOf<Char>()
+        var row2 = mutableListOf<Char>()
+
+        // Step 1: Distribute all target letters between rows
+        wordChars.forEachIndexed { index, char ->
+            if (index % 2 == 0 && row1.size < 6) {
+                row1.add(char)
+            } else if (row2.size < 6) {
+                row2.add(char)
+            }
+        }
+
+        randomLetters.forEach { char ->
+            if (row1.size < 6) {
+                row1.add(char)
+            } else {
+                if (row2.size <6)
+                    row2.add(char)
+            }
+        }
+        row1 = row1.shuffled() as MutableList<Char>
+        row2 = row2.shuffled() as MutableList<Char>
+
+        return listOf(row1, row2)
+    }
+
+    fun toggleLetterSelection(row: Int, col: Int) {
+        val currentState = _gameState.value
+        val position = row to col
+
+        // Convert to List to maintain order, then back to Set
+        val currentOrdered = currentState.selectedPositions.toList()
+
+        val newSelectedPositions = if (currentState.selectedPositions.contains(position)) {
+            currentOrdered.filter { it != position }.toSet()
+        } else {
+            if (currentState.selectedPositions.size < currentState.targetWord.length) {
+                (currentOrdered + position).toSet()
+            } else {
+                currentState.selectedPositions
+            }
+        }
+
+        _gameState.update {
+            it.copy(
+                selectedPositions = newSelectedPositions,
+                currentGuess = buildCurrentGuess(newSelectedPositions, it.hintLetters),
+                message = null
+            )
+        }
+    }
+
+    private fun buildCurrentGuess(
+        selectedPositions: Set<Pair<Int, Int>>,
+        hintLetters: List<List<Char>>
+    ): List<Char> {
+        // Create a list that maintains selection order
+        val orderedPositions = selectedPositions.toList()
+
+        // Map to characters while preserving the selection order
+        return orderedPositions.map { (row, col) -> hintLetters[row][col] }
+    }
+
+    fun clearSelection() {
+        _gameState.update {
+            it.copy(
+                selectedPositions = emptySet(),
+                currentGuess = emptyList(),
+                message = null
+            )
+        }
+    }
+
+    fun submitGuess() {
+        val currentState = _gameState.value
+        val guessedWord = currentState.currentGuess.joinToString("")
+        val isCorrect = guessedWord.equals(currentState.targetWord, ignoreCase = true)
+
+        _gameState.update {
+            it.copy(
+                message = if (isCorrect) "Correct! +10 points" else "Wrong guess! -5 points",
+                score = if (isCorrect) it.score + 10 else max(0, it.score - 5),
+                isGameOver = isCorrect
+            )
+        }
+    }
+
+    fun resetGame() {
+        _gameState.update { GameState() }
+        startNewRound()
+    }
+
+    private fun startNewRound() {
+        val word = wordDictionary.random()
+        val hints = generateHintLetters(word)
+        _gameState.update {
+            GameState(
+                targetWord = word,
+                hintLetters = hints,
+                selectedPositions = emptySet(),
+                currentGuess = emptyList(),
+                score = it.score,
+                message = "New round: ${word.length}-letter word"
+            )
+        }
+    }
+}
+
+data class GameState(
+    val targetWord: String = "",
+    val hintLetters: List<List<Char>> = emptyList(),
+    val selectedPositions: Set<Pair<Int, Int>> = emptySet(),
+    val currentGuess: List<Char> = emptyList(),
+    val score: Int = 0,
+    val message: String? = null,
+    val isGameOver: Boolean = false
+)
+
+@Preview(showBackground = true)
+@Composable
+fun GuessWordPreview() {
+    MaterialTheme {
+        GuessWordScreen()
+    }
+}
